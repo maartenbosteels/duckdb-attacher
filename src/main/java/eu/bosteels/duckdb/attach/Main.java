@@ -70,7 +70,9 @@ public class Main {
       exportAndAttachNewDatabase(false);
     }
     var rowsExported = db.inTransaction(statement ->
-            db.runQuery(statement,"select  count(1) from 'exports/**/table_.parquet'"));
+            db.runQuery(statement,
+                    "select sum(length(data)) as bytes, bytes/1000^3 as GBytes, count(1) as rows " +
+                            "from 'exports/**/table_.parquet'"));
     db.close();
     logger.info("rowsExported = {}", rowsExported);
   }
