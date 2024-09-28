@@ -8,7 +8,6 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.sql.SQLException;
-import java.sql.Statement;
 import java.util.Comparator;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -51,9 +50,9 @@ public class Main {
     boolean dirCreated = exportsDir.mkdir();
     logger.info("exportsDir created = {}", dirCreated);
 
-    var data = db.inTransaction(statement -> {
-      statement.execute("create or replace table main_database(id int, thread varchar, ts timestamp)");
-      return db.runQuery(statement, "show all tables");
+    var data = db.inTransaction(() -> {
+      db.execute("create or replace table main_database(id int, thread varchar, ts timestamp)");
+      return db.runQuery("show all tables");
     });
     logger.info("all_tables: {}", data);
     db.doInTransaction(this::attachNew);
@@ -67,10 +66,10 @@ public class Main {
         boolean terminated = executor.awaitTermination(10, TimeUnit.SECONDS);
         logger.info("terminated = {}", terminated);
       }
-      exportAndAttachNewDatabase(false);
+      exportAndAttachNewDatabaseInTransaction(false);
     }
-    var rowsExported = db.inTransaction(statement ->
-            db.runQuery(statement,
+    var rowsExported = db.inTransaction(() ->
+            db.runQuery(
                     "select sum(length(data)) as bytes, bytes/1000^3 as GBytes, count(1) as rows " +
                             "from 'exports/**/table_.parquet'"));
     db.close();
@@ -110,9 +109,9 @@ public class Main {
     }
   }
 
-  private void exportAndAttachNewDatabase(Statement statement, boolean createNew) throws SQLException {
+  private void exportAndAttachNewDatabase(boolean createNew) {
     logger.info("exportAndAttachNewDatabase: createNew={} databaseName={}", createNew, databaseName);
-    statement.execute("use " + databaseName);
+    db.execute("use " + databaseName);
     String destinationDir = "./exports/" + databaseName + "/";
     String export = """
                     export database '%s'
@@ -122,36 +121,36 @@ public class Main {
                         ROW_GROUP_SIZE 100_000
                     )
                     """.formatted(destinationDir);
-    statement.execute(export);
-    statement.execute("ATTACH if not exists ':memory:' AS memory ");
-    statement.execute("use memory ");
-    statement.execute("detach %s".formatted(databaseName));
+    db.execute(export);
+    db.execute("ATTACH if not exists ':memory:' AS memory ");
+    db.execute("use memory ");
+    db.execute("detach %s".formatted(databaseName));
     deleteDatabaseFile();
     if (createNew) {
-      attachNew(statement);
+      attachNew();
     }
   }
 
-  private void attachNew(Statement statement) throws SQLException {
+  private void attachNew() {
     dbCounter++;
     String newDatabaseName = "db" + dbCounter + "_" + RandomString.generate(10) + "_db";
     logger.info("attachNew: old: {} new: {}", databaseName, newDatabaseName);
     databaseName = newDatabaseName;
     logger.info("attaching new database: {}", databaseName);
     String attach = "attach '%s' as %s".formatted(databaseName, databaseName);
-    statement.execute(attach);
-    statement.execute("use " + databaseName);
-    statement.execute("create table %s.table1(id int, thread varchar, data varchar)".formatted(databaseName));
-    long transactionId = db.transactionId(statement);
+    db.execute(attach);
+    db.execute("use " + databaseName);
+    db.execute("create table %s.table1(id int, thread varchar, data varchar)".formatted(databaseName));
+    long transactionId = db.transactionId();
     logger.info("attached new database {} in tx with id {}", databaseName, transactionId);
   }
 
-  private void exportAndAttachNewDatabase(boolean createNew) throws SQLException {
+  private void exportAndAttachNewDatabaseInTransaction(boolean createNew) throws SQLException {
     readWriteLock.writeLock().lock();
     try {
       logger.info("database_size = {}", db.query("CALL pragma_database_size()"));
-      db.doInTransaction(statement -> exportAndAttachNewDatabase(statement, createNew));
-      db.doInTransaction(statement -> statement.execute("checkpoint"));
+      db.doInTransaction(() -> exportAndAttachNewDatabase(createNew));
+      db.doInTransaction(() -> db.execute("checkpoint"));
       insertCounter.set(0);
     } finally {
       readWriteLock.writeLock().unlock();
@@ -160,22 +159,22 @@ public class Main {
 
   public void insert(int id) throws SQLException {
     try {
-      Thread.sleep(500);
+      Thread.sleep(1);
     } catch (InterruptedException ignored) {
     }
     readWriteLock.readLock().lock();
     try {
       String threadName = Thread.currentThread().getName();
-      db.doInTransaction(statement -> {
+      db.doInTransaction(() -> {
         String insert = "insert into main_database(id, thread, ts) select %d, '%s', current_timestamp".formatted(id, threadName);
-        statement.execute(insert);
+        db.execute(insert);
       });
-      db.doInTransaction(statement -> {
-        statement.execute("use " + databaseName);
+      db.doInTransaction(() -> {
+        db.execute("use " + databaseName);
         String data = RandomString.generate(5000);
         // we probably should use a prepared statement here ...
         String insert = "insert into table1(id, thread, data) values(%d, '%s', '%s')".formatted(id, threadName, data);
-        statement.execute(insert);
+        db.execute(insert);
       });
     } finally {
       readWriteLock.readLock().unlock();
@@ -186,7 +185,7 @@ public class Main {
     for (int i=0; i<INSERTS_PER_THREAD; i++) {
       int insertsDone = insertCounter.getAndIncrement();
       if (insertsDone == 1000) {
-        exportAndAttachNewDatabase(true);
+        exportAndAttachNewDatabaseInTransaction(true);
       }
       insert(i);
     }
