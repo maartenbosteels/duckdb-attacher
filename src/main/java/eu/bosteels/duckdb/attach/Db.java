@@ -5,10 +5,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.sql.*;
-import java.util.ArrayList;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 @SuppressWarnings({"SqlDialectInspection", "SqlSourceToSinkFlow", "LoggingSimilarMessage"})
 public class Db {
@@ -64,6 +61,10 @@ public class Db {
         statement.close();
       }
     }
+  }
+
+  public List<Map<String, String>> query(String sql) throws SQLException {
+    return inTransaction(statement -> runQuery(statement, sql));
   }
 
 

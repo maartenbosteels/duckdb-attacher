@@ -134,7 +134,7 @@ public class Main {
 
   private void attachNew(Statement statement) throws SQLException {
     dbCounter++;
-    String newDatabaseName = "db" + dbCounter;
+    String newDatabaseName = "db" + dbCounter + "_" + RandomString.generate(10) + "_db";
     logger.info("attachNew: old: {} new: {}", databaseName, newDatabaseName);
     databaseName = newDatabaseName;
     logger.info("attaching new database: {}", databaseName);
@@ -149,7 +149,9 @@ public class Main {
   private void exportAndAttachNewDatabase(boolean createNew) throws SQLException {
     readWriteLock.writeLock().lock();
     try {
+      logger.info("database_size = {}", db.query("CALL pragma_database_size()"));
       db.doInTransaction(statement -> exportAndAttachNewDatabase(statement, createNew));
+      db.doInTransaction(statement -> statement.execute("checkpoint"));
       insertCounter.set(0);
     } finally {
       readWriteLock.writeLock().unlock();
@@ -157,6 +159,10 @@ public class Main {
   }
 
   public void insert(int id) throws SQLException {
+    try {
+      Thread.sleep(500);
+    } catch (InterruptedException ignored) {
+    }
     readWriteLock.readLock().lock();
     try {
       String threadName = Thread.currentThread().getName();
