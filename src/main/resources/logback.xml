@@ -13,9 +13,10 @@
 
     <logger name="org.springframework" level="WARN"/>
     <logger name="eu.bosteels" level="INFO"/>
-    <logger name="" level="WARN"/>
+<!--    <logger name="" level="WARN"/>-->
 
-    <root >
+
+    <root level="WARN">
         <appender-ref ref="STDOUT"/>
     </root>
 
